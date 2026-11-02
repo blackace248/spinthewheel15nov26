@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tonight’s Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&display=swap">
+<style>
+:root{
+  --bg:#fffaf7; --ink:#161212; --muted:#6b5b5b; --pointer:#161212; --hub:#fff; --acc:#ff7a00;
+  --a:#d62828; --a-ink:#ffffff; --b:#ffffff; --b-ink:#161212; --line:#161212;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#120d0d; --ink:#fff5f0; --muted:#c9a9a0; --pointer:#fff5f0; --hub:#120d0d; --line:#120d0d;}
+}
+:root[data-theme="dark"]{--bg:#120d0d; --ink:#fff5f0; --muted:#c9a9a0; --pointer:#fff5f0; --hub:#120d0d; --line:#120d0d;}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.4rem;padding:1rem;overflow-x:hidden}
+h1{font-size:clamp(1.9rem,6vw,3.2rem);font-weight:800;margin:0;letter-spacing:-.02em;text-align:center;line-height:1.05}
+.sub{margin:0;color:var(--muted);font-size:1.05rem;text-align:center;min-height:1.5em}
+.stage{position:relative;width:min(88vw,460px);aspect-ratio:1}
+#wheel{width:100%;height:100%;display:block;cursor:pointer;border-radius:50%;
+  box-shadow:0 18px 50px rgba(214,40,40,.35);-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#wheel:focus-visible{outline:4px solid var(--acc);outline-offset:6px}
+.pointer{position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:0;height:0;
+  border-left:16px solid transparent;border-right:16px solid transparent;border-top:34px solid var(--acc);
+  filter:drop-shadow(0 3px 3px rgba(0,0,0,.35));pointer-events:none;z-index:2}
+#result{font-size:clamp(1.5rem,5vw,2.2rem);font-weight:800;margin:0;text-align:center;min-height:1.3em}
+#fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:10}
+</style>
+</head>
+<body>
+<h1>What are we doing on 15 Nov?</h1>
+<p class="sub" id="sub">Tap the wheel to find out.</p>
+<div class="stage">
+  <div class="pointer"></div>
+  <canvas id="wheel" tabindex="0" role="button" aria-label="Spin the wheel"></canvas>
+</div>
+<p id="result" aria-live="polite"></p>
+<canvas id="fx"></canvas>
+
+<script>
+(function(){
+  var SLICES = 8, TAU = Math.PI * 2, S = TAU / SLICES;
+  var LABELS = ["Offline watch party", "Better go sleep"];
+  var cv = document.getElementById("wheel"), ctx = cv.getContext("2d");
+  var fx = document.getElementById("fx"), fctx = fx.getContext("2d");
+  var sub = document.getElementById("sub"), result = document.getElementById("result");
+  var rot = 0, spinning = false, parts = [], raf = 0;
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function css(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  function size(){
+    var dpr = window.devicePixelRatio || 1, w = cv.clientWidth;
+    cv.width = cv.height = Math.round(w * dpr);
+    fx.width = innerWidth * dpr; fx.height = innerHeight * dpr;
+    draw();
+  }
+
+  function draw(){
+    var w = cv.width, r = w / 2, c = r;
+    ctx.clearRect(0, 0, w, w);
+    ctx.save(); ctx.translate(c, c); ctx.rotate(rot);
+    for (var i = 0; i < SLICES; i++){
+      var even = i % 2 === 0;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r - 2, i * S, (i + 1) * S); ctx.closePath();
+      ctx.fillStyle = css(even ? "--a" : "--b"); ctx.fill();
+      ctx.lineWidth = r * 0.012; ctx.strokeStyle = css("--line"); ctx.stroke();
+      ctx.save(); ctx.rotate(i * S + S / 2);
+      ctx.fillStyle = css(even ? "--a-ink" : "--b-ink");
+      ctx.font = "800 " + Math.max(10, r * 0.075) + 'px "Bricolage Grotesque", system-ui, sans-serif';
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillText(LABELS[even ? 0 : 1], r * 0.93, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(c, c, r * 0.13, 0, TAU); ctx.fillStyle = css("--hub"); ctx.fill();
+    ctx.fillStyle = css("--pointer");
+    ctx.font = "800 " + r * 0.06 + 'px "Bricolage Grotesque", system-ui, sans-serif';
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("SPIN", c, c);
+  }
+
+  function ease(t){ return 1 - Math.pow(1 - t, 4.2); }
+
+  function spin(){
+    if (spinning) return;
+    spinning = true; result.textContent = ""; sub.textContent = "Spinning…";
+    // The pointer sits at the top (canvas angle 3π/2). Pick a random "watch party"
+    // slice and a random spot inside it, so each spin looks different.
+    var k = 2 * Math.floor(Math.random() * (SLICES / 2));
+    var a = k * S + S * (0.1 + 0.8 * Math.random());
+    var target = 1.5 * Math.PI - a;
+    var turns = 5 + Math.floor(Math.random() * 4);
+    var delta = ((target - rot) % TAU + TAU) % TAU + TAU * turns;
+    var start = rot, dur = reduce ? 1200 : 4600 + Math.random() * 2600, t0 = performance.now();
+    (function frame(now){
+      var t = Math.min(1, (now - t0) / dur);
+      rot = start + delta * ease(t); draw();
+      if (t < 1) requestAnimationFrame(frame); else done();
+    })(t0);
+  }
+
+  function done(){
+    rot = rot % TAU; spinning = false; draw();
+    sub.textContent = "The wheel has spoken.";
+    result.textContent = "Offline watch party!";
+    if (!reduce) confetti();
+  }
+
+  function confetti(){
+    var dpr = window.devicePixelRatio || 1, cols = ["#d62828","#ff3b3b","#ff7a00","#ffffff","#161212","#ffb066"];
+    var rect = cv.getBoundingClientRect(), cx = (rect.left + rect.width / 2) * dpr, cy = (rect.top + rect.height / 2) * dpr;
+    for (var i = 0; i < 160; i++){
+      var ang = Math.random() * TAU, sp = (6 + Math.random() * 12) * dpr;
+      parts.push({x:cx, y:cy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - 6 * dpr,
+        w:(6 + Math.random() * 7) * dpr, h:(3 + Math.random() * 5) * dpr, r:Math.random() * TAU,
+        vr:(Math.random() - .5) * .4, c:cols[i % cols.length], life:1});
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+
+  function tick(){
+    fctx.clearRect(0, 0, fx.width, fx.height);
+    parts = parts.filter(function(p){ return p.life > 0 && p.y < fx.height + 40; });
+    parts.forEach(function(p){
+      p.vy += 0.35 * (window.devicePixelRatio || 1); p.vx *= 0.99; p.vy *= 0.99;
+      p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= 0.004;
+      fctx.save(); fctx.globalAlpha = Math.max(0, Math.min(1, p.life * 2));
+      fctx.translate(p.x, p.y); fctx.rotate(p.r); fctx.fillStyle = p.c;
+      fctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); fctx.restore();
+    });
+    raf = parts.length ? requestAnimationFrame(tick) : 0;
+    if (!parts.length) fctx.clearRect(0, 0, fx.width, fx.height);
+  }
+
+  cv.addEventListener("click", spin);
+  cv.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); spin(); } });
+  addEventListener("resize", size);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+  (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(size);
+  size();
+})();
+</script>
+</body>
+</html>
